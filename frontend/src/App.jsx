@@ -6,6 +6,7 @@ import { QuestionCard } from './components/QuestionCard';
 import { DisambiguationCard } from './components/DisambiguationCard';
 import { ResultCard } from './components/ResultCard';
 import { CorrectionCard } from './components/CorrectionCard';
+import { Leaderboard } from './components/Leaderboard';
 
 import './styles.css';
 
@@ -29,7 +30,14 @@ function App() {
     recentGames,
     fetchRecentGames,
     submitFeedback,
-    maxQuestions
+    maxQuestions,
+    playerName,
+    playerId,
+    score,
+    leaderboard,
+    fetchLeaderboard,
+    topPlayers,
+    explanation
   } = useGame();
 
   const containerRef = useRef(null);
@@ -61,7 +69,12 @@ function App() {
       )}
 
       {phase === 'start' && (
-        <StartScreen onStart={startGame} loading={loading} recentGames={recentGames} />
+        <StartScreen 
+          onStart={startGame} 
+          onLeaderboard={fetchLeaderboard}
+          loading={loading} 
+          recentGames={recentGames} 
+        />
       )}
 
       {phase === 'question' && (
@@ -76,6 +89,8 @@ function App() {
           questionCount={questionCount}
           maxQuestions={maxQuestions}
           banter={banter}
+          score={score}
+          topPlayers={topPlayers}
         />
       )}
 
@@ -88,6 +103,7 @@ function App() {
           onHome={resetGame}
           questionCount={questionCount}
           maxQuestions={maxQuestions}
+          score={score}
         />
       )}
 
@@ -100,6 +116,10 @@ function App() {
           onWrong={goToCorrection}
           onSubmitFeedback={submitFeedback}
           banter={banter}
+          score={score}
+          playerId={playerId}
+          playerName={playerName}
+          explanation={explanation}
         />
       )}
 
@@ -107,6 +127,13 @@ function App() {
         <CorrectionCard 
           onRestart={resetGame}
           onSubmitFeedback={submitFeedback}
+        />
+      )}
+
+      {phase === 'leaderboard' && (
+        <Leaderboard 
+          data={leaderboard}
+          onHome={resetGame}
         />
       )}
     </div>

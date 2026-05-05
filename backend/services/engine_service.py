@@ -59,6 +59,11 @@ class EngineService:
         # Use hard filtering for first 3 questions to narrow pool fast
         is_hard_mode = state.question_count < 3 or engine.get_active_candidate_count() >= 100
         
+        # Track inconsistency before updating
+        mass = engine.calculate_likelihood_mass(state.last_attribute, answer, hard_mode=is_hard_mode)
+        if mass < 0.1 and answer in ["yes", "no"]:
+            state.inconsistency_score += (0.1 - mass) * 20
+            
         engine.update(state.last_attribute, answer, hard_mode=is_hard_mode)
         
         state.answer_history.append({"attribute": state.last_attribute, "answer": answer})
@@ -66,6 +71,23 @@ class EngineService:
         state.probabilities = engine.probabilities.copy()
         state.asked_questions.append(state.last_attribute)
         state.question_count += 1
+        
+        # Update current score
+        state.final_score = self.calculate_current_score(state)
+
+    def calculate_current_score(self, state: SessionState) -> int:
+        """
+        Formula: (question_count * 10) + (wrong_guess_attempts * 50) + trick_bonus
+        trick_bonus is derived from inconsistency_score if AI is struggling.
+        """
+        base_score = state.question_count * 10
+        penalty_score = state.wrong_guess_attempts * 50
+        
+        # If inconsistency is high, it means the user is successfully "tricking" the AI's search path
+        trick_bonus = int(state.inconsistency_score * 20)
+        state.trick_bonus = trick_bonus
+        
+        return base_score + penalty_score + trick_bonus
 
     def revert_state(self, state: SessionState) -> Optional[str]:
         if not state.answer_history:
@@ -94,14 +116,38 @@ class EngineService:
         state.disambiguation_mode = False
         return self.generator.generate_question(last_attr)
         
-    def get_next_action(self, state: SessionState) -> Tuple[str, str, float, int, bool, str]:
+    def get_personality_phrasing(self, attribute: str) -> str:
+        """Transforms robotic attributes into conversational expert phrasing."""
+        phrasings = {
+            "batsman": "Does your player shine more with the bat than the ball?",
+            "bowler": "Is he primarily known for his variations and pace on the pitch?",
+            "wicketkeeper": "Would I find him standing right behind the stumps?",
+            "all_rounder": "Is he one of those rare gems who can do it all for the team?",
+            "csk_player": "Has he ever donned the famous yellow jersey of Chennai?",
+            "mi_player": "Does he call the Wankhede Stadium his true home?",
+            "captain": "Is he a leader of men, often seen making the big calls?",
+            "legend": "Is he considered one of the all-time greats of the tournament?",
+            "overseas": "Did he have to travel across the oceans to play in the IPL?",
+        }
+        # Fallback to template
+        return phrasings.get(attribute, f"Tell me, is your player related to {attribute.replace('_', ' ')}?")
+
+    def get_dynamic_reaction(self, confidence: float, remaining: int) -> str:
+        """Dynamic expert reactions based on AI confidence."""
+        if remaining > 200: return "Interesting... a vast field to search. Let's start narrow."
+        if remaining < 10: return "I'm zeroing in... I can almost see the player now!"
+        if confidence > 0.7: return "The pieces are falling into place... narrowing it down!"
+        if confidence < 0.2: return "You're keeping me on my toes! A tricky one indeed..."
+        return "Hmm... interesting choice. Let's keep digging."
+
+    def get_next_action(self, state: SessionState) -> Tuple[str, str, float, int, bool, str, List[Dict]]:
         """
-        Returns: (type, text, confidence, remaining_candidates, is_disambiguation, banter)
+        Returns: (type, text, confidence, remaining_candidates, is_disambiguation, banter, top_players)
         """
         engine = self._get_probability_engine(state)
         probs = engine.get_probabilities()
         
-        if not probs: return ("guess", "Unknown", 0.0, 0, False, "I'm stumped!")
+        if not probs: return ("guess", "Unknown", 0.0, 0, False, "I'm stumped!", [])
             
         top1 = probs[0]
         top2 = probs[1] if len(probs) > 1 else {"probability": 0}
@@ -113,19 +159,33 @@ class EngineService:
         
         state.top_two_candidates = [top1['name'], top2['name']] if len(probs) > 1 else [top1['name']]
 
+        # Live Visualization Data (Top 3 blurred)
+        top_viz = []
+        for p in probs[:3]:
+            top_viz.append({
+                "name": engine.blur_name(p["name"]),
+                "probability": round(p["probability"] * 100, 1)
+            })
+
         # 1. Win Condition
         if confidence >= 0.85 and state.question_count >= 4:
             player_data = next((p for p in self.players if p["name"] == top1['name']), {})
             tribute = self.generator.generate_tribute(top1['name'], player_data)
-            return ("guess", top1['name'], confidence, active_count, False, tribute)
+            return ("guess", top1['name'], confidence, active_count, False, tribute, top_viz)
             
-        # 2. Max Question Limit
-        max_q = state.max_questions if hasattr(state, 'max_questions') and state.max_questions else 8
+        # 2. Max Question Limit / Disambiguation
+        max_q = state.max_questions or 8
         if state.question_count >= max_q:
+            # If we already asked a disambiguation question (count > max_q), force a guess
+            if state.question_count > max_q:
+                 player_data = next((p for p in self.players if p["name"] == top1['name']), {})
+                 tribute = self.generator.generate_tribute(top1['name'], player_data)
+                 return ("guess", top1['name'], confidence, active_count, False, tribute, top_viz)
+            
             state.disambiguation_mode = True
             question_text = self.generator.generate_disambiguation(top1['name'])
-            banter = self.generator.generate_banter(confidence, active_count, state.question_count)
-            return ("question", question_text, confidence, active_count, True, banter)
+            banter = self.get_dynamic_reaction(confidence, active_count)
+            return ("question", question_text, confidence, active_count, True, banter, top_viz)
             
         # 3. Normal Question Selection
         selector = self._get_selector(state, engine)
@@ -134,13 +194,18 @@ class EngineService:
         if not best_attr:
             player_data = next((p for p in self.players if p["name"] == top1['name']), {})
             tribute = self.generator.generate_tribute(top1['name'], player_data)
-            return ("guess", top1['name'], confidence, active_count, False, tribute)
+            return ("guess", top1['name'], confidence, active_count, False, tribute, top_viz)
             
         state.last_attribute = best_attr
-        question_text = self.generator.generate_question(best_attr)
-        banter = self.generator.generate_banter(confidence, active_count, state.question_count)
+        question_text = self.get_personality_phrasing(best_attr)
+        banter = self.get_dynamic_reaction(confidence, active_count)
         
-        return ("question", question_text, confidence, active_count, False, banter)
+        return ("question", question_text, confidence, active_count, False, banter, top_viz)
+
+    def get_explanation(self, state: SessionState, player_name: str) -> List[Dict]:
+        """XAI Layer: Explain the guess."""
+        engine = self._get_probability_engine(state)
+        return engine.get_attribute_contributions(player_name, state.answer_history)
 
     def record_feedback(self, correct_player: str, was_correct: bool, session_id: str):
         """Reinforcement layer: Record feedback to improve future weighting."""

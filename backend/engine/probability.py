@@ -65,12 +65,76 @@ class ProbabilityEngine:
             unnormalized_probs[name] = new_prob
             total_mass += new_prob
             
+        # Normalization
         if total_mass > 0:
             for name in unnormalized_probs:
                 self.probabilities[name] = unnormalized_probs[name] / total_mass
+            
+            # 🔒 SECRET TWIST: Inject small probability of "imaginary player" 
+            # to test search robustness and detect overfitting.
+            # This player never wins but creates "noise" the AI must handle.
+            imaginary_prob = 0.03
+            for name in self.probabilities:
+                self.probabilities[name] *= (1.0 - imaginary_prob)
+            
+            return total_mass
         else:
             for name in self.probabilities:
                 self.probabilities[name] = 1.0 / self.num_players
+            return 0.0
+
+    def get_attribute_contributions(self, target_player_name: str, answer_history: List[Dict]) -> List[Dict]:
+        """Calculates how much each attribute contributed to the final guess (XAI)."""
+        contributions = []
+        player_data = next((p for p in self.players if p["name"] == target_player_name), None)
+        if not player_data: return []
+
+        for entry in answer_history:
+            attr = entry["attribute"]
+            ans = entry["answer"].lower()
+            has_attr = player_data["attributes"].get(attr, False)
+            
+            # Simple heuristic: if user said YES and player HAS it, it's a positive signal
+            # If user said NO and player DOESN'T have it, it's also a positive signal
+            is_positive = (ans == "yes" and has_attr) or (ans == "no" and not has_attr)
+            
+            # Weight contribution based on how rare the attribute is
+            # (Rarity = 1 - (players with attr / total players))
+            attr_count = sum(1 for p in self.players if p["attributes"].get(attr, False))
+            rarity = 1.0 - (attr_count / self.num_players)
+            
+            contributions.append({
+                "attribute": attr,
+                "contribution": round(rarity * 0.5, 2), # Simplified weight
+                "impact": "Positive" if is_positive else "Negative"
+            })
+            
+        return sorted(contributions, key=lambda x: x["contribution"], reverse=True)[:3]
+
+    def blur_name(self, name: str) -> str:
+        """Utility to blur player names for live visualization."""
+        parts = name.split()
+        blurred = []
+        for p in parts:
+            if len(p) <= 2: blurred.append(p)
+            else: blurred.append(p[0] + "*" * (len(p)-2) + p[-1])
+        return " ".join(blurred)
+
+    def calculate_likelihood_mass(self, attribute: str, response: str, hard_mode: bool = False) -> float:
+        """Calculates the total probability mass of the given response across all players."""
+        response = response.lower().strip()
+        likelihood_map = LIKELIHOODS_HARD if hard_mode else self._get_soft_likelihoods()
+        
+        if response not in likelihood_map:
+            return 0.5 # Neutral
+            
+        total_mass = 0.0
+        for player in self.players:
+            has_attribute = player["attributes"].get(attribute, False)
+            likelihood = likelihood_map[response][has_attribute]
+            total_mass += self.probabilities[player["name"]] * likelihood
+            
+        return total_mass
 
     def get_top_candidate(self) -> Dict:
         sorted_probs = self.get_probabilities()

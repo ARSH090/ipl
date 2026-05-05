@@ -8,7 +8,8 @@ export const DisambiguationCard = ({
   onBack, 
   onHome,
   questionCount,
-  maxQuestions
+  maxQuestions,
+  score
 }) => {
   const progressPercent = Math.min(Math.round(((questionCount - 1) / maxQuestions) * 100), 100);
 
@@ -27,13 +28,16 @@ export const DisambiguationCard = ({
           <h2 className="mini-logo-text" onClick={onHome} style={{ cursor: 'pointer' }}>
             akinator<span className="registered">®</span>
           </h2>
+          <div className="score-display">
+            <span className="score-label">SCORE:</span>
+            <span className="score-value">{score || 0}</span>
+          </div>
           <div className="header-actions">
             <button className="home-btn" onClick={onHome} title="Go to Home">
               <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
                 <path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/>
               </svg>
             </button>
-            <div className="language-selector">English</div>
           </div>
         </div>
       </div>

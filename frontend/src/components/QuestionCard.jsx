@@ -12,19 +12,39 @@ export const QuestionCard = ({
   onHome,
   questionCount,
   maxQuestions,
-  banter
+  banter,
+  score,
+  topPlayers = []
 }) => {
   const progressPercent = Math.min(Math.round(((questionCount - 1) / maxQuestions) * 100), 100);
 
   return (
     <div className="game-screen-container">
-      {/* Background decorations shared with start screen */}
+      {/* Probability Visualization Sidebar */}
+      <div className="viz-sidebar">
+        <h4 className="viz-title">AI Analysis</h4>
+        <div className="viz-list">
+          {topPlayers.map((player, idx) => (
+            <div key={idx} className="viz-item">
+              <div className="viz-player-row">
+                <span className="viz-name">{player.name}</span>
+                <span className="viz-prob">{player.probability}%</span>
+              </div>
+              <div className="viz-bar-bg">
+                <div className="viz-bar-fill" style={{ width: `${player.probability}%` }}></div>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="viz-candidates-count">
+          {remainingCandidates} Candidates Left
+        </div>
+      </div>
+
       <div className="bg-decorations">
         <div className="diamond d1"></div>
         <div className="diamond d2"></div>
         <div className="diamond d3"></div>
-        <div className="diamond d4"></div>
-        <div className="diamond d5"></div>
       </div>
 
       <div className="game-header">
@@ -32,13 +52,16 @@ export const QuestionCard = ({
           <h2 className="mini-logo-text" onClick={onHome} style={{ cursor: 'pointer' }}>
             akinator<span className="registered">®</span>
           </h2>
+          <div className="score-display">
+            <span className="score-label">SCORE:</span>
+            <span className={`score-value`} key={score}>{score || 0}</span>
+          </div>
           <div className="header-actions">
             <button className="home-btn" onClick={onHome} title="Go to Home">
               <svg viewBox="0 0 24 24" fill="currentColor" width="20" height="20">
                 <path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/>
               </svg>
             </button>
-            <div className="language-selector">English</div>
           </div>
         </div>
       </div>
@@ -55,6 +78,11 @@ export const QuestionCard = ({
               className="mascot-video"
             />
           </div>
+          {banter && (
+            <div className="banter-bubble">
+              {banter}
+            </div>
+          )}
         </div>
         
         <div className="game-question-col">
@@ -64,9 +92,6 @@ export const QuestionCard = ({
             </div>
             <span className="progress-text">{progressPercent}%</span>
           </div>
-          <div className="diamond d6"></div>
-        <div className="diamond d7"></div>
-        <div className="diamond d8"></div>
 
           <div className="question-bubble-wrapper">
             <div className="question-number-tab">
