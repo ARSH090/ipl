@@ -19,7 +19,6 @@ Built for a hackathon, this project showcases a blend of **State-Aware AI Logic*
 | Home Screen | During Gameplay | Guess Result |
 | :---: | :---: | :---: |
 | ![Home](screenshots/home.png) | ![Game](screenshots/game.png) | ![Result](screenshots/result.png) |
-*(Note: Add your screenshots to a `/screenshots` folder to see them here!)*
 
 ---
 
