@@ -92,13 +92,13 @@ export const QuestionCard = ({
           </div>
           
           <div className="answer-options-box">
-            <button className="answer-text-btn" onClick={() => onAnswer('yes')} disabled={loading}>Yes</button>
-            <button className="answer-text-btn" onClick={() => onAnswer('no')} disabled={loading}>No</button>
-            <button className="answer-text-btn" onClick={() => onAnswer('dont_know')} disabled={loading}>Don't know</button>
-            <button className="answer-text-btn" onClick={() => onAnswer('probably')} disabled={loading}>Probably</button>
-            <button className="answer-text-btn" onClick={() => onAnswer('probably_not')} disabled={loading}>Probably not</button>
+            <button className="answer-text-btn btn-yes" onClick={() => onAnswer('yes')} disabled={loading}>Yes</button>
+            <button className="answer-text-btn btn-no" onClick={() => onAnswer('no')} disabled={loading}>No</button>
+            <button className="answer-text-btn btn-dont-know" onClick={() => onAnswer('dont_know')} disabled={loading}>Don't know</button>
+            <button className="answer-text-btn btn-probably" onClick={() => onAnswer('probably')} disabled={loading}>Probably</button>
+            <button className="answer-text-btn btn-probably-not" onClick={() => onAnswer('probably_not')} disabled={loading}>Probably not</button>
             <div className="back-btn-separator"></div>
-            <button className="answer-text-btn back-btn" onClick={onBack} disabled={loading || questionCount <= 1}>Back</button>
+            <button className="answer-text-btn back-btn" onClick={onBack} disabled={loading || questionCount <= 1}>Back to Previous</button>
           </div>
         </div>
       </div>

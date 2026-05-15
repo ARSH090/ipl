@@ -217,6 +217,8 @@ async def confirm_guess(body: dict):
     questions_asked = body.get("questions_asked", 0)
     trick_detected = body.get("trick_detected", False)
     
+    final_guess = "Unknown"
+    
     # Close Supabase session
     try:
         session = session_manager.get_session(session_id)
@@ -253,9 +255,11 @@ async def confirm_guess(body: dict):
     
     # Calculate score
     if correct:
-        score = 0  # AI won
+        # AI won, but player gets points for surviving long enough
+        score = max(5, questions_asked * 2)  # Small bonus for longevity
         game_won = False
     else:
+        # Player won (AI lost)
         score = 100  # Base: AI lost
         score += max(0, (questions_asked - 5) * 20)  # Bonus for surviving past Q5
         game_won = True

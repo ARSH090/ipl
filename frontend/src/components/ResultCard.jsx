@@ -102,6 +102,18 @@ export const ResultCard = ({
                 <h3 className="guess-name-text">{guess}</h3>
                 <p className="guess-subtitle">{banter || 'Guessed by Akinator'}</p>
                 
+                <div className="result-image-box">
+                  <div className="placeholder-image">
+                    <img 
+                      src={`https://tse1.mm.bing.net/th?q=${encodeURIComponent(guess)}+IPL+player+official+profile+photo`} 
+                      alt={guess} 
+                      onError={(e) => {
+                        e.target.src = 'https://via.placeholder.com/300x400.png?text=Player+Image+Not+Found';
+                      }}
+                    />
+                  </div>
+                </div>
+
                 <div className="result-actions">
                   <button className="result-btn btn-yes" onClick={handleYes} disabled={confirming}>
                     {confirming ? '...' : 'Yes'}
@@ -113,18 +125,6 @@ export const ResultCard = ({
             </div>
           </div>
           
-          <div className="result-image-box">
-            <div className="placeholder-image">
-              <img 
-                src={`https://tse1.mm.bing.net/th?q=${encodeURIComponent(guess)}+IPL+player+official+profile+photo`} 
-                alt={guess} 
-                onError={(e) => {
-                  e.target.src = 'https://via.placeholder.com/300x400.png?text=Player+Image+Not+Found';
-                }}
-              />
-            </div>
-          </div>
-
           <div style={{ display: 'flex', justifyContent: 'center', gap: '30px', marginTop: '20px' }}>
             <button className="result-back-link" onClick={onBack} disabled={confirming} style={{ margin: 0, zIndex: 10, cursor: 'pointer', padding: '10px 20px', border: '1px solid #5d7c99', borderRadius: '20px', color: '#f8fafc', background: 'transparent' }}>
               &larr; Go back

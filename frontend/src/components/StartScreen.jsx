@@ -69,16 +69,6 @@ export const StartScreen = ({ onStart, loading }) => {
              <button className="mode-btn" onClick={() => onStart(username || 'Anonymous', 'solo', 20)} disabled={loading}>20 Questions</button>
              <button className="mode-btn battle-mode-btn" onClick={() => onStart(username || 'Anonymous', 'battle')} disabled={loading}>Battle Mode</button>
            </div>
-           
-           <div className="play-btn-wrapper">
-               <button 
-                 className="action-btn play-btn" 
-                 onClick={() => onStart(username || 'Anonymous', 'solo', 8)}
-                 disabled={loading}
-               >
-                 {loading ? 'INITIALIZING...' : 'START GAME'}
-               </button>
-           </div>
         </div>
       </div>
 
