@@ -1,9 +1,17 @@
 import { useState } from 'react';
-import { startGameRequest, submitAnswerRequest, submitBackRequest, getRecentGamesRequest, submitFeedbackRequest } from '../api/client';
+import {
+  startGameRequest,
+  submitAnswerRequest,
+  submitBackRequest,
+  getRecentGamesRequest,
+  submitFeedbackRequest,
+  getSessionState,
+  checkTrickDetection
+} from '../api/client';
 
 export const useGame = () => {
   const [sessionId, setSessionId] = useState(null);
-  const [phase, setPhase] = useState('start'); // 'start', 'question', 'disambiguation', 'result'
+  const [phase, setPhase] = useState('start'); // 'start', 'question', 'disambiguation', 'result', 'correction'
   const [question, setQuestion] = useState('');
   const [confidence, setConfidence] = useState(0);
   const [remainingCandidates, setRemainingCandidates] = useState(250);
@@ -15,12 +23,39 @@ export const useGame = () => {
   const [error, setError] = useState('');
   const [recentGames, setRecentGames] = useState([]);
 
+  // New: AI Visualization + Trick Detection state
+  const [topSuspects, setTopSuspects] = useState([]);
+  const [trickDetected, setTrickDetected] = useState(false);
+  const [inconsistencyScore, setInconsistencyScore] = useState(0);
+
+  /** Fetch top suspects + trick detection in background after each answer */
+  const fetchSuspectsAndTrick = async (sid) => {
+    try {
+      const state = await getSessionState(sid);
+      if (state.top_candidates) {
+        setTopSuspects(state.top_candidates.slice(0, 3));
+      }
+    } catch (err) {
+      console.error('Failed to fetch suspects:', err);
+    }
+    try {
+      const trick = await checkTrickDetection(sid);
+      setTrickDetected(!trick.is_consistent);
+      setInconsistencyScore(trick.inconsistency_score || 0);
+    } catch (err) {
+      console.error('Failed to check trick:', err);
+    }
+  };
+
   const startGame = async (questions = 8) => {
     setMaxQuestions(questions);
     setLoading(true);
     setError('');
     setQuestionCount(0);
     setBanter('');
+    setTopSuspects([]);
+    setTrickDetected(false);
+    setInconsistencyScore(0);
     try {
       const data = await startGameRequest(questions);
       setSessionId(data.session_id);
@@ -45,12 +80,12 @@ export const useGame = () => {
     }
   };
 
-  const processResponse = (data) => {
+  const processResponse = (data, sid) => {
     setConfidence(data.confidence || 0);
     if (data.remaining_candidates !== undefined) {
       setRemainingCandidates(data.remaining_candidates);
     }
-    
+
     if (data.banter) {
       setBanter(data.banter);
     }
@@ -64,12 +99,16 @@ export const useGame = () => {
     } else {
       setQuestion(data.question);
       if (data.banter === "Let's try that again...") {
-        // We went back, questionCount should decrement in backend but here we handle it
         setQuestionCount(prev => Math.max(1, prev - 1));
       } else {
         setQuestionCount(prev => prev + 1);
       }
       setPhase('question');
+    }
+
+    // Fetch AI visualization data in background (only if game continues)
+    if (sid && !data.guess) {
+      fetchSuspectsAndTrick(sid);
     }
   };
 
@@ -78,7 +117,7 @@ export const useGame = () => {
     setError('');
     try {
       const data = await submitAnswerRequest(sessionId, answer);
-      processResponse(data);
+      processResponse(data, sessionId);
     } catch (err) {
       setError('Failed to submit answer.');
     } finally {
@@ -99,7 +138,7 @@ export const useGame = () => {
     setLoading(true);
     try {
       const data = await submitBackRequest(sessionId);
-      processResponse(data);
+      processResponse(data, sessionId);
     } catch (err) {
       setError('Failed to go back.');
     } finally {
@@ -117,6 +156,9 @@ export const useGame = () => {
     setBanter('');
     setQuestionCount(0);
     setError('');
+    setTopSuspects([]);
+    setTrickDetected(false);
+    setInconsistencyScore(0);
   };
 
   const submitFeedback = async (correctPlayer, wasCorrect) => {
@@ -141,6 +183,9 @@ export const useGame = () => {
     error,
     recentGames,
     maxQuestions,
+    topSuspects,
+    trickDetected,
+    inconsistencyScore,
     startGame,
     submitAnswer,
     submitDisambiguation,
@@ -149,6 +194,5 @@ export const useGame = () => {
     resetGame,
     fetchRecentGames,
     submitFeedback,
-    maxQuestions,
   };
 };

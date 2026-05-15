@@ -1,18 +1,59 @@
 import React, { useState } from 'react';
-import mascotImg from '../assets/front_mascot.png';
 import downloadVideo from '../assets/Untitled design.mp4';
+import { confirmGuess } from '../api/client';
 
-export const CorrectionCard = ({ onRestart, onSubmitFeedback }) => {
+export const CorrectionCard = ({
+  onRestart,
+  onSubmitFeedback,
+  username = 'Anonymous',
+  questionsAsked = 0,
+  sessionId,
+  trickDetected = false,
+  onXAIGenerated
+}) => {
   const [correctAnswer, setCorrectAnswer] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    if (correctAnswer.trim()) {
-      if (onSubmitFeedback) {
-        onSubmitFeedback(correctAnswer, false);
-      }
-      onRestart();
+    if (!correctAnswer.trim()) return;
+
+    // Submit feedback to existing system
+    if (onSubmitFeedback) {
+      onSubmitFeedback(correctAnswer, false);
     }
+
+    // Call guess/confirm for XAI + leaderboard + learning log
+    setSubmitting(true);
+    try {
+      const result = await confirmGuess({
+        session_id: sessionId,
+        correct: false,
+        actual_player: correctAnswer.trim(),
+        username,
+        questions_asked: questionsAsked,
+        trick_detected: trickDetected
+      });
+
+      // Show XAI explanation modal
+      if (onXAIGenerated && result.xai_explanation) {
+        onXAIGenerated({
+          ...result.xai_explanation,
+          correct: false,
+          actual_player: correctAnswer.trim(),
+          score_earned: result.score_earned,
+          badges_earned: result.badges_earned,
+          learning_message: '🧠 I am learning from this mistake... Next time I will do better!'
+        });
+        return; // XAI modal will handle restart
+      }
+    } catch (err) {
+      console.error('Failed to confirm guess:', err);
+    } finally {
+      setSubmitting(false);
+    }
+
+    onRestart();
   };
 
   return (
@@ -77,13 +118,15 @@ export const CorrectionCard = ({ onRestart, onSubmitFeedback }) => {
                   width: '100%'
                 }}
                 autoFocus
+                disabled={submitting}
               />
               <button 
                 type="submit" 
                 className="result-btn btn-yes" 
                 style={{ alignSelf: 'center', marginTop: '10px' }}
+                disabled={submitting || !correctAnswer.trim()}
               >
-                Submit
+                {submitting ? 'Saving...' : 'Submit'}
               </button>
             </form>
           </div>

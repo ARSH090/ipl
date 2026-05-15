@@ -47,7 +47,12 @@ class EngineService:
         best_attr = selector.get_best_attribute(use_heuristic=False)
         
         state.last_attribute = best_attr
-        question_text = self.generator.generate_question(best_attr)
+        question_text = self.generator.generate_question(
+            attribute=best_attr, 
+            value="Yes", 
+            history="None", 
+            count=len(self.players)
+        )
         banter = self.generator.generate_banter(0.0, len(self.players), 0)
         
         return best_attr, banter
@@ -92,7 +97,14 @@ class EngineService:
         state.question_count -= 1
         state.last_attribute = last_attr
         state.disambiguation_mode = False
-        return self.generator.generate_question(last_attr)
+        
+        history_str = ", ".join([h['attribute'] for h in state.answer_history]) if state.answer_history else "None"
+        return self.generator.generate_question(
+            attribute=last_attr, 
+            value="Yes", 
+            history=history_str, 
+            count=engine.get_active_candidate_count()
+        )
         
     def get_next_action(self, state: SessionState) -> Tuple[str, str, float, int, bool, str]:
         """
@@ -137,7 +149,13 @@ class EngineService:
             return ("guess", top1['name'], confidence, active_count, False, tribute)
             
         state.last_attribute = best_attr
-        question_text = self.generator.generate_question(best_attr)
+        history_str = ", ".join([h['attribute'] for h in state.answer_history]) if state.answer_history else "None"
+        question_text = self.generator.generate_question(
+            attribute=best_attr, 
+            value="Yes", 
+            history=history_str, 
+            count=active_count
+        )
         banter = self.generator.generate_banter(confidence, active_count, state.question_count)
         
         return ("question", question_text, confidence, active_count, False, banter)

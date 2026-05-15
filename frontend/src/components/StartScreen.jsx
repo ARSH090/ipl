@@ -1,24 +1,12 @@
-import React from 'react';
+import React, { useState } from 'react';
 import mascotImg from '../assets/mascot_asad.png';
+import LiveLeaderboard from './LiveLeaderboard';
 
-export const StartScreen = ({ onStart, loading, recentGames = [] }) => {
+export const StartScreen = ({ onStart, loading }) => {
+  const [username, setUsername] = useState('');
+
   return (
     <div className="start-screen-container">
-      {/* Recent Games Box */}
-      {recentGames.length > 0 && (
-        <div className="recent-games-sidebar">
-          <div className="recent-games-box">
-            <h3 className="recent-title">Last 10 games</h3>
-            <div className="recent-divider"></div>
-            <ul className="recent-list">
-              {recentGames.map((name, i) => (
-                <li key={i} className="recent-item">{name}</li>
-              ))}
-            </ul>
-          </div>
-        </div>
-      )}
-
       {/* Background decorations */}
       <div className="bg-decorations">
         <div className="diamond d1"></div>
@@ -31,20 +19,27 @@ export const StartScreen = ({ onStart, loading, recentGames = [] }) => {
         <div className="diamond d8"></div>
       </div>
 
-      <div className="mascot-section">
-        <div className="speech-bubble left-bubble">
-          <p>Hello, I am APL-Akinator</p>
+      <div className="start-main-layout">
+        {/* Leaderboard - Now on the left side of mascot */}
+        <div className="start-leaderboard-sidebar">
+          <LiveLeaderboard />
         </div>
-        
-        <img src={mascotImg} alt="Akinator Mascot" className="main-mascot" />
 
-        <div className="speech-bubble right-bubble">
-          <p>Think about a real Cricket Player of IPL all time.<br/>I will try to guess who it is</p>
+        <div className="mascot-section">
+          <div className="speech-bubble left-bubble">
+            <p>Hello, I am APL-Akinator</p>
+          </div>
+          
+          <img src={mascotImg} alt="Akinator Mascot" className="main-mascot" />
+
+          <div className="speech-bubble right-bubble">
+            <p>Think about a real Cricket Player of IPL all time.<br/>I will try to guess who it is</p>
+          </div>
         </div>
       </div>
       
       <div className="logo-container">
-        <h1 className="logo-text">Akinator<span className="registered"></span></h1>
+        <h1 className="logo-text">Akinator<span className="registered">®</span></h1>
       </div>
       
       <div className="start-footer">
@@ -57,30 +52,39 @@ export const StartScreen = ({ onStart, loading, recentGames = [] }) => {
           <span className="settings-text">Settings</span>
         </div>
         
-        <div className="store-buttons" style={{ flexDirection: 'column' }}>
-           <div className="game-modes" style={{ display: 'flex', gap: '10px', marginBottom: '15px' }}>
-             <button className="mode-btn" onClick={() => onStart(8)} disabled={loading}>8 Questions</button>
-             <button className="mode-btn" onClick={() => onStart(20)} disabled={loading}>20 Questions</button>
+        <div className="store-buttons">
+           <div className="username-input-wrapper">
+             <input
+               type="text"
+               placeholder="Enter player name..."
+               value={username}
+               onChange={(e) => setUsername(e.target.value)}
+               className="username-input"
+               maxLength={20}
+             />
+           </div>
+
+           <div className="game-modes">
+             <button className="mode-btn" onClick={() => onStart(username || 'Anonymous', 'solo', 8)} disabled={loading}>8 Questions</button>
+             <button className="mode-btn" onClick={() => onStart(username || 'Anonymous', 'solo', 20)} disabled={loading}>20 Questions</button>
+             <button className="mode-btn battle-mode-btn" onClick={() => onStart(username || 'Anonymous', 'battle')} disabled={loading}>Battle Mode</button>
            </div>
            
            <div className="play-btn-wrapper">
-               <span className="dots">♦ ♦</span>
                <button 
                  className="action-btn play-btn" 
-                 onClick={() => onStart(8)}
+                 onClick={() => onStart(username || 'Anonymous', 'solo', 8)}
                  disabled={loading}
                >
-                 {loading ? 'WAIT...' : 'PLAY'}
+                 {loading ? 'INITIALIZING...' : 'START GAME'}
                </button>
-               <span className="dots">♦ ♦</span>
            </div>
         </div>
       </div>
 
       <div className="metrics-bottom">
-        <p>It is a Cricket Player Guessing Game</p>
-        <br />
-        <p>Developed by Students of NSU</p>
+        <p>The Ultimate IPL Cricket Player Guessing Game</p>
+        <p className="credit">Developed by Students of NSU</p>
       </div>
     </div>
   );

@@ -74,8 +74,20 @@ export const QuestionCard = ({
               <span className="q-num">{questionCount || '1'}</span>
               <span className="diamond-bullet bottom-diamond">♦</span>
             </div>
-            <div className="question-bubble-body">
-              {loading ? "Consulting the crystal ball..." : question}
+            <div className={`question-bubble-body ${loading ? 'loading-pulse' : ''}`}>
+              {loading ? (
+                <div className="thinking-container">
+                  <span className="thinking-text">CONSULTING THE THIRD UMPIRE...</span>
+                  <div className="thinking-dots">
+                    <span></span><span></span><span></span>
+                  </div>
+                </div>
+              ) : (
+                <div className="question-content">
+                  <div className="question-label">AI INQUIRY</div>
+                  <div className="question-text">{question}</div>
+                </div>
+              )}
             </div>
           </div>
           

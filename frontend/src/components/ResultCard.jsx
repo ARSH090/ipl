@@ -1,14 +1,59 @@
-import React from 'react';
-import mascotImg from '../assets/front_mascot.png';
+import React, { useState } from 'react';
 import downloadVideo from '../assets/Untitled design.mp4';
+import { confirmGuess } from '../api/client';
 
-export const ResultCard = ({ guess, confidence, onRestart, onBack, onWrong, banter, onSubmitFeedback }) => {
-  const handleYes = () => {
+export const ResultCard = ({
+  guess,
+  confidence,
+  onRestart,
+  onBack,
+  onWrong,
+  banter,
+  onSubmitFeedback,
+  username = 'Anonymous',
+  questionsAsked = 0,
+  sessionId,
+  trickDetected = false,
+  onXAIGenerated
+}) => {
+  const [confirming, setConfirming] = useState(false);
+
+  const handleYes = async () => {
     if (onSubmitFeedback) {
       onSubmitFeedback(guess, true);
     }
+
+    // Call guess/confirm for XAI + leaderboard update
+    setConfirming(true);
+    try {
+      const result = await confirmGuess({
+        session_id: sessionId,
+        correct: true,
+        actual_player: guess,
+        username,
+        questions_asked: questionsAsked,
+        trick_detected: trickDetected
+      });
+
+      // Show XAI explanation modal
+      if (onXAIGenerated && result.xai_explanation) {
+        onXAIGenerated({
+          ...result.xai_explanation,
+          correct: true,
+          score_earned: result.score_earned,
+          badges_earned: result.badges_earned
+        });
+        return; // XAI modal will handle restart
+      }
+    } catch (err) {
+      console.error('Failed to confirm guess:', err);
+    } finally {
+      setConfirming(false);
+    }
+
     onRestart();
   };
+
   return (
     <div className="game-screen-container">
       <div className="bg-decorations">
@@ -50,16 +95,20 @@ export const ResultCard = ({ guess, confidence, onRestart, onBack, onWrong, bant
         </div>
         
         <div className="game-question-col">
-          <div className="result-top-box">
-            <div className="result-header">I THINK OF</div>
-            <div className="result-body">
-              <h3 className="guess-name-text">{guess}</h3>
-              <p className="guess-subtitle">{banter || 'Guessed by Akinator'}</p>
-              
-              <div className="result-actions">
-                <button className="result-btn btn-yes" onClick={handleYes}>Yes</button>
-                <div className="result-diamond">♦</div>
-                <button className="result-btn btn-no" onClick={onBack}>No</button>
+          <div className="question-bubble-wrapper">
+            <div className="result-top-box">
+              <div className="result-header">I THINK OF</div>
+              <div className="result-body">
+                <h3 className="guess-name-text">{guess}</h3>
+                <p className="guess-subtitle">{banter || 'Guessed by Akinator'}</p>
+                
+                <div className="result-actions">
+                  <button className="result-btn btn-yes" onClick={handleYes} disabled={confirming}>
+                    {confirming ? '...' : 'Yes'}
+                  </button>
+                  <div className="result-diamond">♦</div>
+                  <button className="result-btn btn-no" onClick={onWrong} disabled={confirming}>No</button>
+                </div>
               </div>
             </div>
           </div>
@@ -77,11 +126,8 @@ export const ResultCard = ({ guess, confidence, onRestart, onBack, onWrong, bant
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'center', gap: '30px', marginTop: '20px' }}>
-            <button className="result-back-link" onClick={onBack} style={{ margin: 0, zIndex: 10, cursor: 'pointer', padding: '10px 20px', border: '1px solid #5d7c99', borderRadius: '20px' }}>
+            <button className="result-back-link" onClick={onBack} disabled={confirming} style={{ margin: 0, zIndex: 10, cursor: 'pointer', padding: '10px 20px', border: '1px solid #5d7c99', borderRadius: '20px', color: '#f8fafc', background: 'transparent' }}>
               &larr; Go back
-            </button>
-            <button className="result-back-link" onClick={onWrong} style={{ margin: 0, zIndex: 10, cursor: 'pointer', padding: '10px 20px', border: '1px solid #5d7c99', borderRadius: '20px' }}>
-              I was wrong
             </button>
           </div>
         </div>
