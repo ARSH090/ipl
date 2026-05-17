@@ -291,20 +291,17 @@ async def confirm_guess(body: dict):
     }
 
 # ============================================================
-# BATTLE MODE ENDPOINTS
+# BATTLE MODE ENDPOINTS (UPGRADED)
 # ============================================================
 
 @router.post("/battle/create")
 async def create_battle_room(body: dict):
     """
-    Create a multiplayer battle room
-    
-    Body: {username, session_id}
+    Create a multiplayer quiz battle room
     """
     username = body.get("username", "Anonymous")
-    session_id = body.get("session_id")
     
-    room = battle_service.create_room(username, session_id)
+    room = battle_service.create_room(username)
     
     return {
         "room_code": room["room_code"],
@@ -315,77 +312,65 @@ async def create_battle_room(body: dict):
 @router.post("/battle/join")
 async def join_battle_room(body: dict):
     """
-    Join a multiplayer battle room
-    
-    Body: {room_code, username, session_id}
+    Join a quiz battle room
     """
     room_code = body.get("room_code")
     username = body.get("username", "Anonymous")
-    session_id = body.get("session_id")
     
-    room = battle_service.join_room(room_code, username, session_id)
+    try:
+        room = battle_service.join_room(room_code, username)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     
     if not room:
-        raise HTTPException(status_code=404, detail="Room not found")
+        raise HTTPException(status_code=404, detail="Room not found or not joinable")
     
-    return {
-        "room_code": room_code,
-        "host_username": room.get("host_username"),
-        "guest_username": username,
-        "status": room.get("status")
-    }
+    return room
 
 @router.get("/battle/room/{room_code}")
 async def get_battle_room(room_code: str):
     """Get battle room state"""
     room = battle_service.get_room(room_code)
-    
     if not room:
         raise HTTPException(status_code=404, detail="Room not found")
-    
     return room
+
+@router.get("/battle/question/{room_code}")
+async def get_battle_question(room_code: str):
+    """Fetch current round question details"""
+    question = battle_service.get_current_question(room_code)
+    if not question:
+        raise HTTPException(status_code=404, detail="Question not found")
+    return question
 
 @router.post("/battle/answer")
 async def submit_battle_answer(body: dict):
     """
-    Submit answer in battle mode
-    
-    Body: {room_code, player_role: "host"|"guest", answer: "yes"|"no"|"maybe"|"dont_know"}
+    Submit answer in quiz battle mode
     """
     room_code = body.get("room_code")
     player_role = body.get("player_role")
     answer = body.get("answer")
     
     room = battle_service.submit_answer(room_code, player_role, answer)
-    
-    return {"status": "answered", "room": room}
+    if "error" in room:
+        raise HTTPException(status_code=400, detail=room["error"])
+    return room
 
-@router.post("/battle/resolve")
-async def resolve_battle(body: dict):
-    """
-    Resolve battle and update scores
-    
-    Body: {
-        room_code,
-        host_guess, host_correct,
-        guest_guess, guest_correct
-    }
-    """
+@router.post("/battle/start_round")
+async def start_battle_round(body: dict):
+    """Start the timer for the current round"""
     room_code = body.get("room_code")
-    host_guess = body.get("host_guess")
-    host_correct = body.get("host_correct", False)
-    guest_guess = body.get("guest_guess")
-    guest_correct = body.get("guest_correct", False)
-    
-    room = battle_service.resolve_battle(
-        room_code,
-        host_guess,
-        host_correct,
-        guest_guess,
-        guest_correct
-    )
-    
-    return {"winner": room.get("winner"), "room": room}
+    room = battle_service.start_round(room_code)
+    return room
+
+@router.post("/battle/next_round")
+async def advance_battle_round(body: dict):
+    """Move to next round or end game"""
+    room_code = body.get("room_code")
+    room = battle_service.next_round(room_code)
+    return room
+
 
 # ============================================================
 # TRICK DETECTION & XAI ENDPOINTS

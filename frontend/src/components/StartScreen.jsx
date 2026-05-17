@@ -29,19 +29,19 @@ export const StartScreen = ({ onStart, loading }) => {
           <div className="speech-bubble left-bubble">
             <p>Hello, I am APL-Akinator</p>
           </div>
-          
+
           <img src={mascotImg} alt="Akinator Mascot" className="main-mascot" />
 
           <div className="speech-bubble right-bubble">
-            <p>Think about a real Cricket Player of IPL all time.<br/>I will try to guess who it is</p>
+            <p>Think about a real Cricket Player of IPL all time.<br />I will try to guess who it is</p>
           </div>
         </div>
       </div>
-      
+
       <div className="logo-container">
         <h1 className="logo-text">Akinator<span className="registered">®</span></h1>
       </div>
-      
+
       <div className="start-footer">
         <div className="settings-btn">
           <div className="settings-icon">
@@ -51,30 +51,30 @@ export const StartScreen = ({ onStart, loading }) => {
           </div>
           <span className="settings-text">Settings</span>
         </div>
-        
-        <div className="store-buttons">
-           <div className="username-input-wrapper">
-             <input
-               type="text"
-               placeholder="Enter player name..."
-               value={username}
-               onChange={(e) => setUsername(e.target.value)}
-               className="username-input"
-               maxLength={20}
-             />
-           </div>
 
-           <div className="game-modes">
-             <button className="mode-btn" onClick={() => onStart(username || 'Anonymous', 'solo', 8)} disabled={loading}>8 Questions</button>
-             <button className="mode-btn" onClick={() => onStart(username || 'Anonymous', 'solo', 20)} disabled={loading}>20 Questions</button>
-             <button className="mode-btn battle-mode-btn" onClick={() => onStart(username || 'Anonymous', 'battle')} disabled={loading}>Battle Mode</button>
-           </div>
+        <div className="store-buttons">
+          <div className="username-input-wrapper">
+            <input
+              type="text"
+              placeholder="Enter player name..."
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              className="username-input"
+              maxLength={20}
+            />
+          </div>
+
+          <div className="game-modes">
+            <button className="mode-btn" onClick={() => onStart(username.trim() || 'Anonymous', 'solo', 8)} disabled={loading}>8 Questions</button>
+            <button className="mode-btn" onClick={() => onStart(username.trim() || 'Anonymous', 'solo', 20)} disabled={loading}>20 Questions</button>
+            <button className="mode-btn battle-mode-btn" onClick={() => onStart(username.trim() || `Challenger_${Math.floor(1000 + Math.random() * 9000)}`, 'battle')} disabled={loading}>Battle Mode</button>
+          </div>
         </div>
       </div>
 
       <div className="metrics-bottom">
         <p>The Ultimate IPL Cricket Player Guessing Game</p>
-        <p className="credit">Developed by Students of NSU</p>
+        <p className="credit">Developed by Team Zenith</p>
       </div>
     </div>
   );

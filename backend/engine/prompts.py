@@ -188,3 +188,48 @@ STYLE: Energetic IPL commentary tone."""
 
     def generate_disambiguation(self, top_candidate_name: str) -> str:
         return f"Is your player {top_candidate_name}?"
+
+    def generate_battle_questions(self, count: int = 10) -> list:
+        """Generate dynamic IPL quiz questions for Battle Mode"""
+        if not self.client or self.mode == "fallback":
+            return []
+            
+        try:
+            prompt = f"""Generate {count} unique and challenging IPL quiz questions.
+Each question must be Multiple Choice with 4 options.
+Difficulty should vary from Easy to Legendary.
+Categories: History, Records, Captaincy, Famous Moments, Stats.
+
+RETURN ONLY A JSON ARRAY of objects with this structure:
+[
+  {{
+    "question": "...",
+    "options": ["A", "B", "C", "D"],
+    "correct_answer": "...",
+    "difficulty": "easy/medium/hard/legendary",
+    "category": "...",
+    "points": 100-300
+  }}
+]
+RULES: NO MARKDOWN. NO EMOJIS. Correct answer MUST be one of the options."""
+
+            raw_json = "[]"
+            if self.mode == "openrouter":
+                response = self.client.chat.completions.create(
+                    model=self.model_name,
+                    messages=[{"role": "user", "content": prompt}],
+                    max_tokens=2000
+                )
+                if response.choices:
+                    raw_json = response.choices[0].message.content.strip().replace('```json', '').replace('```', '')
+            elif self.mode == "gemini":
+                response = self.client.models.generate_content(model=self.model_name, contents=prompt)
+                if response and response.text:
+                    raw_json = response.text.strip().replace('```json', '').replace('```', '')
+            
+            import json
+            questions = json.loads(raw_json)
+            return questions
+        except Exception as e:
+            print(f"Error generating battle questions: {e}")
+            return []

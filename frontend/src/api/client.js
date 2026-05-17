@@ -76,8 +76,56 @@ export const getLeaderboardRequest = async (limit = 10) => {
   return response.data;
 };
 
+/** Create a multiplayer quiz battle room */
+export const createBattleRoom = async (username, sessionId) => {
+  const response = await api.post('/battle/create', { username, session_id: sessionId });
+  return response.data;
+};
+
+/** Join a quiz battle room */
+export const joinBattleRoom = async (roomCode, username, sessionId) => {
+  const response = await api.post('/battle/join', { room_code: roomCode, username, session_id: sessionId });
+  return response.data;
+};
+
+/** Get current battle room state */
+export const getBattleRoom = async (roomCode) => {
+  const response = await api.get(`/battle/room/${roomCode}`);
+  return response.data;
+};
+
+/** Fetch current round question */
+export const getBattleQuestion = async (roomCode) => {
+  const response = await api.get(`/battle/question/${roomCode}`);
+  return response.data;
+};
+
+/** Submit quiz answer in battle mode */
+export const submitBattleAnswer = async (roomCode, playerRole, answer, timeLeft) => {
+  const response = await api.post('/battle/answer', {
+    room_code: roomCode,
+    player_role: playerRole,
+    answer,
+    time_left: timeLeft
+  });
+  return response.data;
+};
+
+/** Start the current round timer */
+export const startBattleRound = async (roomCode) => {
+  const response = await api.post('/battle/start_round', { room_code: roomCode });
+  return response.data;
+};
+
+/** Advance to the next round */
+export const nextBattleRound = async (roomCode) => {
+  const response = await api.post('/battle/next_round', { room_code: roomCode });
+  return response.data;
+};
+
 /** Generate XAI explanation for a guess */
 export const getXAIExplanation = async (body) => {
   const response = await api.post('/xai/explain', body);
   return response.data;
 };
+

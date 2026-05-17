@@ -1,33 +1,35 @@
 import { useState, useEffect, useRef } from 'react';
+import { supabase } from '../lib/supabase';
 import '../styles/BattleMode.css';
 
 export default function BattleMode({ username, sessionId, onClose, onGameEnd }) {
-  const [screen, setScreen] = useState('lobby'); // lobby, join, waiting, battle, result
+  const [screen, setScreen] = useState('lobby'); // lobby, waiting, countdown, active, round_result, finished
   const [roomCode, setRoomCode] = useState('');
   const [joinCode, setJoinCode] = useState('');
-  const [opponentUsername, setOpponentUsername] = useState('');
-  const [currentQuestion, setCurrentQuestion] = useState('');
-  const [currentAttribute, setCurrentAttribute] = useState('');
+  const [roomData, setRoomData] = useState(null);
+  const [currentQuestion, setCurrentQuestion] = useState(null);
   const [myAnswer, setMyAnswer] = useState(null);
-  const [opponentAnswered, setOpponentAnswered] = useState(false);
-  const [gameState, setGameState] = useState({
-    questionNumber: 0,
-    myScore: 0,
-    opponentScore: 0,
-    status: 'waiting'
-  });
-  const [result, setResult] = useState(null);
+  const [timeLeft, setTimeLeft] = useState(30);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [playerRole, setPlayerRoleState] = useState(null); // 'host' or 'guest'
-  const [battleSessionId, setBattleSessionId] = useState(sessionId);
-  const playerRoleRef = useRef(null);
+  const [playerRole, setPlayerRole] = useState(null); // 'host' or 'guest'
+  const [copied, setCopied] = useState(false);
   
-  const setPlayerRole = (role) => {
-    setPlayerRoleState(role);
-    playerRoleRef.current = role;
-  };
-  const ws = useRef(null);
+  const timerRef = useRef(null);
+  const channelRef = useRef(null);
+  const startTimerRef = useRef(null);
+  const pollingRef = useRef(null);
+
+  // Clean up all timers and channels when component unmounts
+  useEffect(() => {
+    return () => {
+      if (channelRef.current) supabase.removeChannel(channelRef.current);
+      if (pollingRef.current) clearInterval(pollingRef.current);
+      if (startTimerRef.current) clearTimeout(startTimerRef.current);
+    };
+  }, []);
+
+  // --- ROOM MANAGEMENT ---
 
   const createRoom = async () => {
     setLoading(true);
@@ -35,13 +37,13 @@ export default function BattleMode({ username, sessionId, onClose, onGameEnd }) 
       const response = await fetch('/api/battle/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, session_id: sessionId })
+        body: JSON.stringify({ username })
       });
       const data = await response.json();
       setRoomCode(data.room_code);
       setPlayerRole('host');
-      connectWebSocket(data.room_code, 'host', username);
       setScreen('waiting');
+      subscribeToRoom(data.room_code);
     } catch (err) {
       setError('Failed to create room');
     } finally {
@@ -61,339 +63,374 @@ export default function BattleMode({ username, sessionId, onClose, onGameEnd }) 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           room_code: joinCode.toUpperCase(),
-          username,
-          session_id: sessionId
+          username
         })
       });
-      if (!response.ok) throw new Error('Room not found');
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.detail || 'Room not found');
+      }
       const data = await response.json();
       setRoomCode(data.room_code);
-      setOpponentUsername(data.host_username);
       setPlayerRole('guest');
-      connectWebSocket(data.room_code, 'guest', username);
-      setScreen('battle');
+      setRoomData(data);
+      subscribeToRoom(data.room_code);
     } catch (err) {
-      setError('Invalid room code or room not found');
+      setError(err.message);
     } finally {
       setLoading(false);
     }
   };
 
-  const connectWebSocket = (code, role, currentUsername) => {
-    const wsHost = window.location.host; // Works with vite proxy in dev
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    ws.current = new WebSocket(`${protocol}//${wsHost}/ws/battle/${code}`);
-    
-    ws.current.onopen = () => {
-      if (role === 'guest') {
-        ws.current.send(JSON.stringify({
-          type: 'PLAYER_JOINED',
-          room_code: code,
-          guest_username: currentUsername
-        }));
-      }
-    };
-    
-    ws.current.onmessage = (event) => {
-      const message = JSON.parse(event.data);
-      handleWebSocketMessage(message);
-    };
-    
-    ws.current.onerror = (error) => {
-      console.error('WebSocket error:', error);
-      setError('Connection error');
-    };
+  // --- REALTIME SUBSCRIPTION ---
+
+  const subscribeToRoom = (code) => {
+    // Clean up any existing channels and polling intervals
+    if (channelRef.current) supabase.removeChannel(channelRef.current);
+    if (pollingRef.current) {
+      clearInterval(pollingRef.current);
+      pollingRef.current = null;
+    }
+
+    // 1. Supabase Realtime Subscription
+    console.log(`Subscribing to Realtime channel room:${code}`);
+    channelRef.current = supabase
+      .channel(`room:${code}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'battle_rooms',
+          filter: `room_code=eq.${code}`
+        },
+        (payload) => {
+          console.log('Realtime Update Received:', payload);
+          if (payload.new) {
+            handleRoomUpdate(payload.new);
+          }
+        }
+      )
+      .subscribe((status, err) => {
+        console.log(`Realtime room:${code} status changed to:`, status);
+        if (err) {
+          console.error("Realtime subscription error:", err);
+        }
+      });
+
+    // 2. High-performance Polling Fallback (runs every 2 seconds to guarantee sync)
+    console.log(`Setting up polling fallback for room:${code}`);
+    pollingRef.current = setInterval(() => {
+      fetchRoomState(code);
+    }, 2000);
+
+    // Initial fetch to populate state immediately
+    fetchRoomState(code);
   };
 
-  const handleWebSocketMessage = (message) => {
-    const { type } = message;
+  const fetchRoomState = async (code) => {
+    const { data, error } = await supabase
+      .from('battle_rooms')
+      .select('*')
+      .eq('room_code', code)
+      .single();
     
-    switch (type) {
-      case 'PLAYER_JOINED':
-        setOpponentUsername(message.guest_username);
-        setScreen('battle');
-        if (playerRoleRef.current === 'host') {
-          fetchNextQuestion(true); // isFirst = true
-        }
-        break;
-      case 'QUESTION_READY':
-        setCurrentQuestion(message.question);
-        setCurrentAttribute(message.attribute);
-        setGameState(prev => ({ ...prev, questionNumber: message.question_number }));
-        setMyAnswer(null);
-        setOpponentAnswered(false);
-        break;
-      case 'ANSWER_RECEIVED':
-        if (message.player_role !== playerRoleRef.current) {
-          setOpponentAnswered(true);
-        }
-        break;
-      case 'BOTH_ANSWERED':
-        // Both answered, wait for next question
-        setTimeout(() => {
-          setMyAnswer(null);
-          setOpponentAnswered(false);
-        }, 1500);
-        break;
-      case 'GAME_OVER':
-        setResult(message);
-        setScreen('result');
-        break;
-      case 'SCORE_UPDATE':
-        setGameState(prev => ({
-          ...prev,
-          myScore: message.host_score,
-          opponentScore: message.guest_score
-        }));
-        break;
-      default:
-        break;
+    if (data) handleRoomUpdate(data);
+  };
+
+  const handleRoomUpdate = (newRoom) => {
+    setRoomData(newRoom);
+    setScreen(newRoom.status);
+
+    // If active, fetch question if needed
+    if (newRoom.status === 'active') {
+      if (!currentQuestion || currentQuestion.id !== newRoom.question_ids[newRoom.current_round - 1]) {
+        fetchCurrentQuestion(newRoom.room_code);
+      }
+    }
+
+    // Reset my answer if round advanced
+    if (newRoom.status === 'active' && (!roomData || roomData.current_round !== newRoom.current_round)) {
+      setMyAnswer(null);
+    }
+
+    // Both players can trigger the start of the first round to ensure synchronization
+    if (newRoom.status === 'countdown' && !startTimerRef.current) {
+      startTimerRef.current = setTimeout(() => {
+        startRound(newRoom.room_code);
+        startTimerRef.current = null;
+      }, 3000);
+    }
+
+    // Host handles round transitions for consistency
+    if (playerRole === 'host' && newRoom.status === 'round_result') {
+      setTimeout(() => nextRound(newRoom.room_code), 5000);
     }
   };
 
-  const submitAnswer = (answer) => {
+  const fetchCurrentQuestion = async (code) => {
+    try {
+      const response = await fetch(`/api/battle/question/${code}`);
+      const data = await response.json();
+      setCurrentQuestion(data);
+    } catch (err) {
+      console.error("Error fetching question:", err);
+    }
+  };
+
+  // --- GAME ACTIONS ---
+
+  const startRound = async (code) => {
+    await fetch('/api/battle/start_round', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ room_code: code })
+    });
+  };
+
+  const nextRound = async (code) => {
+    await fetch('/api/battle/next_round', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ room_code: code })
+    });
+  };
+
+  const submitAnswer = async (answer) => {
+    if (myAnswer || screen !== 'active') return;
     setMyAnswer(answer);
     
-    if (ws.current && ws.current.readyState === WebSocket.OPEN) {
-      ws.current.send(JSON.stringify({
-        type: 'SUBMIT_ANSWER',
-        room_code: roomCode,
-        player_role: playerRole,
-        answer
-      }));
-    }
-  };
-
-  const closeConnection = () => {
-    if (ws.current) {
-      ws.current.close();
-    }
-  };
-
-  const fetchNextQuestion = async (isFirst = false) => {
     try {
-      let data;
-      if (isFirst) {
-        const response = await fetch('/api/start', { 
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ max_questions: 8 })
-        });
-        data = await response.json();
-        setBattleSessionId(data.session_id);
-      } else {
-        const response = await fetch('/api/answer', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ session_id: battleSessionId, answer: myAnswer })
-        });
-        data = await response.json();
-      }
-
-      if (data.guess) {
-        // Game over
-        ws.current.send(JSON.stringify({
-          type: 'GAME_OVER',
+      await fetch('/api/battle/answer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
           room_code: roomCode,
-          winner: 'draw', // simplified for now
-          host_guess: data.guess,
-          host_score: gameState.myScore,
-          guest_score: gameState.opponentScore
-        }));
-      } else {
-        ws.current.send(JSON.stringify({
-          type: 'NEXT_QUESTION',
-          room_code: roomCode,
-          question: data.question,
-          attribute: data.attribute,
-          question_number: gameState.questionNumber + 1
-        }));
-      }
+          player_role: playerRole,
+          answer
+        })
+      });
     } catch (err) {
-      console.error("Error fetching next question:", err);
+      console.error("Error submitting answer:", err);
     }
   };
 
+  // --- TIMER LOGIC ---
+
   useEffect(() => {
-    if (playerRole === 'host' && myAnswer && opponentAnswered) {
-      setTimeout(() => {
-        fetchNextQuestion(false);
-      }, 1500);
+    if (screen === 'active' && roomData?.round_start_at) {
+      const startAt = new Date(roomData.round_start_at).getTime();
+      
+      const updateTimer = () => {
+        const now = Date.now();
+        const elapsed = (now - startAt) / 1000;
+        const remaining = Math.max(0, 30 - elapsed);
+        setTimeLeft(Math.floor(remaining));
+
+        if (remaining <= 0) {
+          clearInterval(timerRef.current);
+          if (!myAnswer) submitAnswer('TIMEOUT');
+        }
+      };
+
+      updateTimer();
+      timerRef.current = setInterval(updateTimer, 1000);
+    } else {
+      clearInterval(timerRef.current);
     }
-  }, [myAnswer, opponentAnswered, playerRole]);
 
-  useEffect(() => {
-    return () => closeConnection();
-  }, []);
+    return () => clearInterval(timerRef.current);
+  }, [screen, roomData?.round_start_at, myAnswer]);
 
-  // Lobby Screen
+  // --- UI RENDERING ---
+
   if (screen === 'lobby') {
     return (
       <div className="battle-mode">
         <button className="battle-close" onClick={onClose}>×</button>
-        
-        <div className="battle-header">⚔️ Battle Mode</div>
-        
+        <div className="battle-header">⚔️ IPL BATTLE ARENA</div>
         <div className="battle-lobby">
           <div className="lobby-option">
-            <h3>Create Room</h3>
-            <p>Start a new battle and share your code</p>
-            <button 
-              onClick={createRoom} 
-              disabled={loading}
-              className="battle-button primary"
-            >
-              {loading ? 'Creating...' : 'Create Room'}
+            <h3>HOST A BATTLE</h3>
+            <p>Create a private arena and challenge a friend</p>
+            <button onClick={createRoom} disabled={loading} className="battle-button primary">
+              {loading ? 'INITIALIZING...' : 'CREATE ROOM'}
             </button>
           </div>
-
           <div className="lobby-divider">OR</div>
-
           <div className="lobby-option">
-            <h3>Join Room</h3>
-            <p>Enter a friend's battle code</p>
+            <h3>JOIN BATTLE</h3>
+            <p>Enter arena code to start showdown</p>
             <input
               type="text"
-              placeholder="e.g., CSK421"
+              placeholder="ENTER CODE"
               value={joinCode}
               onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
               maxLength="6"
               className="battle-input"
             />
-            <button 
-              onClick={joinRoom} 
-              disabled={loading}
-              className="battle-button primary"
-            >
-              {loading ? 'Joining...' : 'Join Room'}
+            <button onClick={joinRoom} disabled={loading} className="battle-button primary">
+              {loading ? 'JOINING...' : 'ENTER ARENA'}
             </button>
           </div>
         </div>
-
         {error && <div className="battle-error">{error}</div>}
       </div>
     );
   }
 
-  // Waiting Screen
   if (screen === 'waiting') {
     return (
       <div className="battle-mode">
-        <button className="battle-close" onClick={() => { closeConnection(); onClose(); }}>×</button>
-        
-        <div className="battle-header">⚔️ Waiting for Opponent</div>
-        
+        <button className="battle-close" onClick={onClose}>×</button>
+        <div className="battle-header">⚔️ WAITING FOR CHALLENGER</div>
         <div className="battle-waiting">
           <div className="room-code-display">
-            <span className="label">Your Room Code:</span>
+            <span className="label">ARENA CODE</span>
             <span className="code">{roomCode}</span>
             <button 
-              onClick={() => navigator.clipboard.writeText(roomCode)}
+              onClick={() => {
+                navigator.clipboard.writeText(roomCode);
+                setCopied(true);
+                setTimeout(() => setCopied(false), 2000);
+              }} 
               className="copy-button"
             >
-              📋 Copy
+              {copied ? '✅ COPIED!' : '📋 COPY CODE'}
             </button>
           </div>
-
           <div className="waiting-animation">
-            <div className="dot"></div>
-            <div className="dot"></div>
-            <div className="dot"></div>
+            <div className="dot"></div><div className="dot"></div><div className="dot"></div>
           </div>
-
-          <p className="waiting-text">Waiting for your friend to join...</p>
+          <p className="waiting-text">Share this code with your opponent to start the battle</p>
         </div>
       </div>
     );
   }
 
-  // Battle Screen
-  if (screen === 'battle') {
+  if (screen === 'countdown') {
+    return (
+      <div className="battle-mode countdown-overlay">
+        <div className="countdown-content">
+          <div className="battle-header">PREPARE FOR BATTLE</div>
+          <div className="vs-display">
+            <span className="player-name">{roomData?.host_username}</span>
+            <span className="vs-text">VS</span>
+            <span className="player-name">{roomData?.guest_username}</span>
+          </div>
+          <div className="countdown-timer">BATTLE STARTING...</div>
+        </div>
+      </div>
+    );
+  }
+
+  if (screen === 'active' || screen === 'round_result') {
+    const isHost = playerRole === 'host';
+    const myScore = isHost ? roomData.host_score : roomData.guest_score;
+    const oppScore = isHost ? roomData.guest_score : roomData.host_score;
+    const oppName = isHost ? roomData.guest_username : roomData.host_username;
+    const myStreak = isHost ? roomData.host_streak : roomData.guest_streak;
+    
     return (
       <div className="battle-mode">
-        <div className="battle-header">⚔️ Battle!</div>
+        <div className="battle-top-bar">
+          <div className="player-stat">
+            <span className="stat-label">YOU</span>
+            <span className="stat-value">{myScore}</span>
+            {myStreak > 1 && <span className="streak-badge">🔥 {myStreak}</span>}
+          </div>
+          <div className="battle-timer-container">
+            <div className={`timer-circle ${timeLeft <= 10 ? 'warning' : ''} ${timeLeft <= 5 ? 'critical' : ''}`}>
+              {timeLeft}
+            </div>
+          </div>
+          <div className="player-stat right">
+            <span className="stat-label">{oppName}</span>
+            <span className="stat-value">{oppScore}</span>
+          </div>
+        </div>
+
+        <div className="round-indicator">ROUND {roomData.current_round} / {roomData.total_rounds}</div>
+
+        <div className="battle-arena">
+          <div className="question-box">
+            {currentQuestion?.question || 'GETTING QUESTION...'}
+          </div>
+
+          <div className="options-grid">
+            {currentQuestion?.options?.map((option, idx) => {
+              const isSelected = myAnswer === option;
+              const isCorrect = screen === 'round_result' && option === currentQuestion.correct_answer;
+              const isWrong = screen === 'round_result' && isSelected && option !== currentQuestion.correct_answer;
+              
+              return (
+                <button
+                  key={idx}
+                  onClick={() => submitAnswer(option)}
+                  disabled={myAnswer !== null || screen === 'round_result'}
+                  className={`option-btn ${isSelected ? 'selected' : ''} ${isCorrect ? 'correct' : ''} ${isWrong ? 'wrong' : ''}`}
+                >
+                  {option}
+                  {isCorrect && <span className="result-icon">✅</span>}
+                  {isWrong && <span className="result-icon">❌</span>}
+                </button>
+              );
+            })}
+          </div>
+
+          {screen === 'round_result' && (
+            <div className="round-feedback-overlay">
+              <div className="feedback-content">
+                {myAnswer === currentQuestion.correct_answer ? (
+                  <div className="feedback-status win">CORRECT! +{isHost ? roomData.host_last_points : roomData.guest_last_points} pts</div>
+                ) : (
+                  <div className="feedback-status loss">{myAnswer === 'TIMEOUT' ? 'TIME UP!' : 'WRONG!'}</div>
+                )}
+                <div className="next-round-tip">Next round starting soon...</div>
+              </div>
+            </div>
+          )}
+          
+          {myAnswer && screen === 'active' && (
+            <div className="waiting-for-opponent">
+              Waiting for {oppName} to answer...
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  if (screen === 'finished') {
+    const isWinner = roomData.winner_username === username;
+    const isDraw = roomData.winner_username === 'draw';
+    
+    return (
+      <div className="battle-mode result-screen">
+        <div className="battle-header result">
+          {isWinner ? '🏆 VICTORY!' : isDraw ? '🤝 DRAW' : '💀 DEFEAT'}
+        </div>
         
-        <div className="battle-scores">
-          <div className="score-you">
-            <div className="score-label">You</div>
-            <div className="score-value">{gameState.myScore}</div>
+        <div className="final-scoreboard">
+          <div className="score-card">
+            <span className="player">{username}</span>
+            <span className="score">{playerRole === 'host' ? roomData.host_score : roomData.guest_score}</span>
           </div>
-          <div className="score-vs">VS</div>
-          <div className="score-opponent">
-            <div className="score-label">{opponentUsername}</div>
-            <div className="score-value">{gameState.opponentScore}</div>
-          </div>
-        </div>
-
-        <div className="question-number">Question {gameState.questionNumber}</div>
-
-        <div className="battle-question">
-          {currentQuestion || 'Waiting for question...'}
-        </div>
-
-        <div className="answer-options">
-          {['yes', 'no', 'maybe', 'dont_know'].map(option => (
-            <button
-              key={option}
-              onClick={() => submitAnswer(option)}
-              disabled={myAnswer !== null}
-              className={`answer-btn ${myAnswer === option ? 'selected' : ''}`}
-            >
-              {option === 'yes' && '✅ Yes'}
-              {option === 'no' && '❌ No'}
-              {option === 'maybe' && '❓ Maybe'}
-              {option === 'dont_know' && '🤷 Dont Know'}
-            </button>
-          ))}
-        </div>
-
-        {myAnswer && !opponentAnswered && (
-          <div className="opponent-waiting">
-            ⏳ Waiting for {opponentUsername}...
-          </div>
-        )}
-
-        {myAnswer && opponentAnswered && (
-          <div className="both-answered">
-            Both answered! Getting next question...
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  // Result Screen
-  if (screen === 'result') {
-    const isWinner = result?.winner === 'host';
-    const isDraw = result?.winner === 'draw';
-
-    return (
-      <div className="battle-mode">
-        <div className="battle-header">
-          {isWinner ? '🎉 You Win!' : isDraw ? '🤝 It\'s a Draw!' : '😢 You Lost'}
-        </div>
-
-        <div className="result-scores">
-          <div className="final-score">
-            <div>{gameState.myScore}</div>
-            <div className="versus">vs</div>
-            <div>{gameState.opponentScore}</div>
+          <div className="vs-divider">VS</div>
+          <div className="score-card">
+            <span className="player">{playerRole === 'host' ? roomData.guest_username : roomData.host_username}</span>
+            <span className="score">{playerRole === 'host' ? roomData.guest_score : roomData.host_score}</span>
           </div>
         </div>
 
-        <div className="result-details">
-          <p>Final Result: {result?.winner === 'host' ? 'You survived longer!' : 'Your opponent survived longer'}</p>
+        <div className="battle-stats">
+          <div className="stat-item">
+            <span>Accuracy</span>
+            <span>{Math.round(((playerRole === 'host' ? roomData.host_score : roomData.guest_score) / (roomData.total_rounds * 150)) * 100)}%</span>
+          </div>
         </div>
 
-        <button 
-          onClick={() => {
-            closeConnection();
-            onGameEnd?.();
-          }}
-          className="battle-button primary"
-        >
-          Play Again
-        </button>
+        <button onClick={onGameEnd} className="battle-button primary">BACK TO LOBBY</button>
       </div>
     );
   }
